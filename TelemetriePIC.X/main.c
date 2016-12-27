@@ -5,7 +5,7 @@
  *  Config : PIC18F26K80, liaison CAN avec MCP 2551, RS232 avec Radio et GPS, 
  *  SPI avec carte SD
  * 
- *  Brief : Ce programme gère la communication avec la telemetrie et les logs
+ *  Brief : Ce programme gere la communication avec la telemetrie et les logs
  * 
  * ***************************************************************************/
 
@@ -13,6 +13,7 @@
 /******************************** Includes ***********************************/
 #include <p18f26k80.h>
 #include <timers.h>
+#include "main.h"
 //#include <ECANPoll.h>
 
 /********************************* PRAGMA ************************************/
@@ -38,7 +39,7 @@ void tmr0config(void);
 
 /******************************** Fonctions **********************************/
 
-//Gestion des interruptions
+/* Gestion des interruptions */
 #pragma code high_vector = 0x08
 
 void high_interrupt(void) {
@@ -59,9 +60,9 @@ void high_interrupt(void) {
 void interruptions(void) {
     
     /* Interruption du TIMER0 */
-    if (INTCONbits.TMR0IF) {
-        INTCONbits.TMR0IF = 0;
-        LATAbits.LATA0 = !(LATAbits.LATA0);
+    if (IT_TMR0) {
+        IT_TMR0 = 0;
+        LED = !LED;
     }
     
 }
@@ -74,7 +75,7 @@ void interruptions(void) {
 void main(void) 
 {
     TRISAbits.TRISA0 = 0;
-    PORTAbits.RA0 = 0;
+    LED = 0;
     tmr0config();
     
     while(1);
@@ -87,7 +88,7 @@ void main(void)
  *****************************************************************************/
 void tmr0config(void)
 { 
-    INTCONbits.TMR0IF = 0;
+    IT_TMR0 = 0;
 	INTCONbits.TMR0IE = 1;
 	INTCONbits.GIEH = 1;
 	T0CON = 0x83;
