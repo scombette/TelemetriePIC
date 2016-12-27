@@ -35,7 +35,8 @@ void tmr0config(void);
 
 
 /******************************** Variables **********************************/
-
+DataMot     donneesMoteur;
+DataGPS     donneesGPS; 
 
 /******************************** Fonctions **********************************/
 

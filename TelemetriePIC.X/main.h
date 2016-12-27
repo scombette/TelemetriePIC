@@ -20,6 +20,25 @@ extern "C" {
     
 /********************************** Labels ***********************************/
 #define IT_TMR0 INTCONbits.TMR0IF 
+    
+/******************************** Structures *********************************/   
+
+typedef struct DataGPS DataGPS;
+struct DataGPS
+{
+    int latitude;
+    int longitude;
+};
+
+typedef struct DataMot DataMot;
+struct DataMot
+{
+    float   vitesse;
+    int     vitesseMoteur;
+    float   tempMoteur;
+    float   tempAir;
+};
+
 #ifdef	__cplusplus
 }
 #endif
