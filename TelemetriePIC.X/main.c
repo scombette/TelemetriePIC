@@ -9,14 +9,20 @@
  * 
  * ***************************************************************************/
 
+/*********************************** TODO ************************************
+ *  @TODO : Ajout reception serie et IT associee
+ *  @TODO : Ajout reception CAN et IT associee 
+ * 
+ */
+
 
 /******************************** Includes ***********************************/
 #include <p18f26k80.h>
 #include <timers.h>
+#include <usart.h>
 #include "main.h"
-//#include <ECANPoll.h>
 
-/********************************* PRAGMA ************************************/
+/********************************* Config ************************************/
 #pragma config  RETEN       = OFF
 #pragma config  XINST       = OFF
 #pragma config  FOSC        = INTIO2 
@@ -31,7 +37,9 @@
 
 /******************************* Prototypes **********************************/
 void interruptions(void);
+void generalConfig(void);
 void tmr0config(void);
+void usart2config(void);
 
 
 /******************************** Variables **********************************/
@@ -61,12 +69,27 @@ void high_interrupt(void) {
 void interruptions(void) {
     
     /* Interruption du TIMER0 */
-    if (IT_TMR0) {
+    if (IT_TMR0) 
+    {
+        /* Reset du flag d'interruption */
         IT_TMR0 = 0;
-        LED = !LED;
+    }
+    
+    /* Interruption da la liaison serie USART2 (GPS) */
+    else if(IT_RX2)
+    {
+        /* Reset du flag d'interruption */
+        IT_RX2 = 0;
+        
+        if(Read2USART() == 0b11001100)
+        {
+            LED = !LED;
+        }
     }
     
 }
+
+
 /*********************************** main *************************************
  *  @Brief  : Boucle principale du programme : configure les peripheriques et 
  *            tourne en boucle.
@@ -75,11 +98,31 @@ void interruptions(void) {
  *****************************************************************************/
 void main(void) 
 {
-    TRISAbits.TRISA0 = 0;
-    LED = 0;
+    /* Configurations */
+    generalConfig();
     tmr0config();
-    
+    usart2config();
+    LED = 0;
+  
+    /* Boucle principale */
     while(1);
+}
+
+/****************************** generalConfig ********************************
+ *  @Brief  : Cette fonction configure les registres necessaires pour le bon 
+ *            fonctionnement du programme (TRIS, INTCON, ...)
+ *  @Params : Aucun
+ *  @Retval : Aucune
+ *****************************************************************************/
+void generalConfig(void)
+{
+    /* Configuration de la pin A0 en sortie TOR */
+    TRISAbits.TRISA0 = 0;
+    
+    /* Activation des interruptions generales et des peripheriques */
+	INTCONbits.GIEH = 1;
+    INTCONbits.PEIE = 1;
+    
 }
 
 /******************************** tmr0config **********************************
@@ -89,9 +132,43 @@ void main(void)
  *****************************************************************************/
 void tmr0config(void)
 { 
-    IT_TMR0 = 0;
+    /* Activation de l'interruption du timer0 */
 	INTCONbits.TMR0IE = 1;
-	INTCONbits.GIEH = 1;
-	T0CON = 0x83;
+    
+    /* Parametrage du registre de controle du timer0 */
+	T0CON = TIMER_INT_ON & T0_16BIT & T0_SOURCE_INT & T0_EDGE_RISE & T0_PS_1_16;
+    
+    /* Reset du flag d'interruption */
+    IT_TMR0 = 0;
 }
 
+/******************************* usart1config *********************************
+ *  @Brief  : Cette fonction configure la premiere liaison serie (Radio)
+ *  @Params : Aucun
+ *  @Retval : Aucune
+ *****************************************************************************/
+void usart1config(void)
+{
+    /* Ouverture du port serie USART1*/
+    Open1USART( USART_TX_INT_OFF    & USART_RX_INT_OFF      & USART_BRGH_HIGH 
+                & USART_CONT_RX     & USART_EIGHT_BIT       & USART_ASYNCH_MODE 
+                & USART_ADDEN_OFF   , BAUD_IDLE_CLK_HIGH    & BAUD_16_BIT_RATE 
+                & BAUD_WAKEUP_OFF   & BAUD_AUTO_ON);
+}
+
+/******************************* usart2config *********************************
+ *  @Brief  : Cette fonction configure la deuxieme liaison serie (GPS)
+ *  @Params : Aucun
+ *  @Retval : Aucune
+ *****************************************************************************/
+void usart2config(void)
+{
+    /* Ouverture du port serie USART2*/
+    Open2USART( USART_TX_INT_OFF    & USART_RX_INT_ON       & USART_BRGH_HIGH 
+                & USART_CONT_RX     & USART_EIGHT_BIT       & USART_ASYNCH_MODE 
+                & USART_ADDEN_OFF   , BAUD_IDLE_CLK_HIGH    & BAUD_16_BIT_RATE 
+                & BAUD_WAKEUP_OFF   & BAUD_AUTO_ON);
+    
+    /* Reset du flag d'interruption */
+    IT_RX2 = 0;
+}

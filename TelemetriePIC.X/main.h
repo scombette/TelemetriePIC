@@ -1,9 +1,11 @@
-/* 
- * File:   main.h
- * Author: Sébastien
- *
- * Created on 27 décembre 2016, 17:26
- */
+/******************************************************************************
+ *                          TelemetriePIC/main.h
+ *  Fichier header du main du programme de la carte telemetrie
+ *  
+ *  Config : PIC18F26K80, liaison CAN avec MCP 2551, RS232 avec Radio et GPS, 
+ *  SPI avec carte SD
+ * 
+ * ***************************************************************************/
 
 #ifndef MAIN_H
 #define	MAIN_H
@@ -20,6 +22,7 @@ extern "C" {
     
 /********************************** Labels ***********************************/
 #define IT_TMR0 INTCONbits.TMR0IF 
+#define IT_RX2  PIR3bits.RC2IF
     
 /******************************** Structures *********************************/   
 
