@@ -12,7 +12,6 @@
 /*********************************** TODO ************************************
  *  @TODO : Ajout reception serie et IT associee
  *  @TODO : Ajout reception CAN et IT associee 
- * 
  */
 
 
@@ -37,9 +36,16 @@
 
 /******************************* Prototypes **********************************/
 void interruptions(void);
+
+/* Configurations */
 void generalConfig(void);
-void tmr0config(void);
-void usart2config(void);
+void tmr0Config(void);
+void usart1Config(void);
+void usart2Config(void);
+void canBusConfig(void);
+
+/* Exécution */
+void sendRXFrame(char* frame, short length, char port);
 
 
 /******************************** Variables **********************************/
@@ -61,12 +67,15 @@ void high_interrupt(void) {
  *  @Brief  : Cette fonction gere les differentes interruptions :
  *            - TIMER0  : Envoie la trame
  *            - CAN     : Stocke les donnees reçues
- *            - RX1     : 
- *            - RX2     : 
- *  @Params : Aucun
+ *            - RX1     : Radio
+ *            - RX2     : GPS
+ *  @Params : Aucun 
  *  @Retval : Aucune
  *****************************************************************************/
 void interruptions(void) {
+    
+    /* Compteur de réception d'octets venant du GPS */
+    static short gpsRCompt = 0;
     
     /* Interruption du TIMER0 */
     if (IT_TMR0) 
@@ -75,18 +84,39 @@ void interruptions(void) {
         IT_TMR0 = 0;
     }
     
-    /* Interruption da la liaison serie USART2 (GPS) */
-    else if(IT_RX2)
+    /* Interruption reception sur la liaison serie USART1 (Radio) */
+    else if(IT_RADIO)
     {
         /* Reset du flag d'interruption */
-        IT_RX2 = 0;
+        IT_RADIO = 0;
         
-        if(Read2USART() == 0b11001100)
+        if(Read1USART() == 0b11001111)
         {
             LED = !LED;
         }
     }
     
+    /* Interruption reception sur la liaison serie USART2 (GPS) */
+    else if(IT_GPS)
+    {
+        /* Reset du flag d'interruption */
+        IT_GPS = 0;
+        
+        /* Tant que l'on n'a pas reçu la trame complète*/
+        while(gpsRCompt < GPS_R_FRAME_LENGTH - 1)
+        {
+            /* On incrémente le compteur GPS*/
+            gpsRCompt ++;
+            
+            Read2USART();
+        }
+        
+        if(Read2USART() == 0b11111111)
+        {
+            LED = !LED;
+            gpsRCompt = 0;
+        }
+    }
 }
 
 
@@ -100,8 +130,10 @@ void main(void)
 {
     /* Configurations */
     generalConfig();
-    tmr0config();
-    usart2config();
+    tmr0Config();
+    usart2Config();
+    usart1Config();
+    
     LED = 0;
   
     /* Boucle principale */
@@ -125,12 +157,12 @@ void generalConfig(void)
     
 }
 
-/******************************** tmr0config **********************************
+/******************************** tmr0Config **********************************
  *  @Brief  : Cette fonction configure le timer0 sur ~500ms et active les IT
  *  @Params : Aucun
  *  @Retval : Aucune
  *****************************************************************************/
-void tmr0config(void)
+void tmr0Config(void)
 { 
     /* Activation de l'interruption du timer0 */
 	INTCONbits.TMR0IE = 1;
@@ -142,26 +174,29 @@ void tmr0config(void)
     IT_TMR0 = 0;
 }
 
-/******************************* usart1config *********************************
+/******************************* usart1Config *********************************
  *  @Brief  : Cette fonction configure la premiere liaison serie (Radio)
  *  @Params : Aucun
  *  @Retval : Aucune
  *****************************************************************************/
-void usart1config(void)
+void usart1Config(void)
 {
     /* Ouverture du port serie USART1*/
-    Open1USART( USART_TX_INT_OFF    & USART_RX_INT_OFF      & USART_BRGH_HIGH 
+    Open1USART( USART_TX_INT_OFF    & USART_RX_INT_ON      & USART_BRGH_HIGH 
                 & USART_CONT_RX     & USART_EIGHT_BIT       & USART_ASYNCH_MODE 
                 & USART_ADDEN_OFF   , BAUD_IDLE_CLK_HIGH    & BAUD_16_BIT_RATE 
                 & BAUD_WAKEUP_OFF   & BAUD_AUTO_ON);
+   
+    /* Reset du flag d'interruption */
+    IT_RADIO = 0;
 }
 
-/******************************* usart2config *********************************
+/******************************* usart2Config *********************************
  *  @Brief  : Cette fonction configure la deuxieme liaison serie (GPS)
  *  @Params : Aucun
  *  @Retval : Aucune
  *****************************************************************************/
-void usart2config(void)
+void usart2Config(void)
 {
     /* Ouverture du port serie USART2*/
     Open2USART( USART_TX_INT_OFF    & USART_RX_INT_ON       & USART_BRGH_HIGH 
@@ -170,5 +205,37 @@ void usart2config(void)
                 & BAUD_WAKEUP_OFF   & BAUD_AUTO_ON);
     
     /* Reset du flag d'interruption */
-    IT_RX2 = 0;
+    IT_GPS = 0;
+}
+
+/******************************* sendRXFrame *********************************
+ *  @Brief  : Cette fonction envoie une trame série sur la liaison série 1 ou 2
+ *  @Params : - char* frame  : La trame à envoyer
+ *            - short length : La longueur de la trame à envoyer
+ *            - char  port   : sur quelle liaison envoyer (1 ou 2)
+ *  @Retval : Aucune
+ *****************************************************************************/
+void sendRXFrame(char* frame, short length, char port)
+{
+    int i = 0;
+    
+    for(i = 0; i < length; i++)
+    {
+        switch(port)
+        {
+            case 1:  
+                Write1USART(frame[i]);
+                while(Busy1USART( ));
+                break;
+                
+            case 2:   
+                Write2USART(frame[i]);
+                while(Busy2USART( ));
+                break;
+                
+            default:
+                break;
+                
+        }
+    }
 }

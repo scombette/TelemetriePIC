@@ -18,11 +18,13 @@ extern "C" {
 #define LED LATAbits.LATA0 
     
 /********************************** Valeurs **********************************/
+#define GPS_R_FRAME_LENGTH      16
+#define RADIO_S_FRAME_LENGTH    16
 
-    
 /********************************** Labels ***********************************/
 #define IT_TMR0 INTCONbits.TMR0IF 
-#define IT_RX2  PIR3bits.RC2IF
+#define IT_RADIO  PIR1bits.RC1IF
+#define IT_GPS  PIR3bits.RC2IF
     
 /******************************** Structures *********************************/   
 
