@@ -43,10 +43,15 @@ void tmr0Config(void);
 void usart1Config(void);
 void usart2Config(void);
 void canBusConfig(void);
+void gpsConfig(void);
 
 /* Exécution */
 void sendRXFrame(char* frame, short length, char port);
+void gpsReceive(short* compteur, char* buffer);
 
+
+/******************************** Constants **********************************/
+const char GPGGA_HEADER[7] = {0x44, 'G', 'P', 'G', 'G', 'A', ','};
 
 /******************************** Variables **********************************/
 DataMot     donneesMoteur;
@@ -77,6 +82,9 @@ void interruptions(void) {
     /* Compteur de réception d'octets venant du GPS */
     static short gpsRCompt = 0;
     
+    /* Buffer de réception de la trame GPS */
+    static char  gpsBuff[GPS_R_FRAME_LENGTH];
+    
     /* Interruption du TIMER0 */
     if (IT_TMR0) 
     {
@@ -102,19 +110,24 @@ void interruptions(void) {
         /* Reset du flag d'interruption */
         IT_GPS = 0;
         
+        /* 
+         *
+         *            @NOTE : while ? ou if ?? Car while bloquant ... 
+         *
+         */
+        
         /* Tant que l'on n'a pas reçu la trame complète*/
-        while(gpsRCompt < GPS_R_FRAME_LENGTH - 1)
-        {
-            /* On incrémente le compteur GPS*/
-            gpsRCompt ++;
-            
-            Read2USART();
+        if(gpsRCompt < GPS_R_FRAME_LENGTH)
+        {    
+            /* Appel de la fonction qui gère la réception et le compteur */
+            gpsReceive(&gpsRCompt, gpsBuff);   
         }
         
-        if(Read2USART() == 0b11111111)
+        /* Une fois que la trame est reçue, on réinitialise le compteur */
+        if(gpsRCompt == GPS_R_FRAME_LENGTH)
         {
-            LED = !LED;
             gpsRCompt = 0;
+            LED = !LED;
         }
     }
 }
@@ -133,6 +146,9 @@ void main(void)
     tmr0Config();
     usart2Config();
     usart1Config();
+    
+    Delay10KTCYx(300);
+    gpsConfig();
     
     LED = 0;
   
@@ -208,6 +224,35 @@ void usart2Config(void)
     IT_GPS = 0;
 }
 
+/******************************** gpsConfig ***********************************
+ *  @Brief  : Cette fonction configure le GPS pour qu'il n'envoie que des 
+ *            trames GPGGA.
+ *  @Params : Aucun
+ *  @Retval : Aucune
+ *****************************************************************************/
+void gpsConfig(void)
+{
+    char frame[27] = {'$','P','S','R','F','1','0','3',',','0','5',',','0','0',',','0','0',',','0','1','*','2','1','\\','r','\\','n'};
+    sendRXFrame(frame, 27, 2);
+    
+    frame[10] = '4';
+    frame[22] = '0';
+    sendRXFrame(frame, 27, 2);
+    
+    frame[10] = '3';
+    frame[22] = '7';
+    sendRXFrame(frame, 27, 2);
+    
+    frame[10] = '2';
+    frame[22] = '6';
+    sendRXFrame(frame, 27, 2);
+
+    frame[10] = '0';
+    frame[16] = '1';
+    frame[22] = '5';
+    sendRXFrame(frame, 27, 2);
+}
+
 /******************************* sendRXFrame *********************************
  *  @Brief  : Cette fonction envoie une trame série sur la liaison série 1 ou 2
  *  @Params : - char* frame  : La trame à envoyer
@@ -237,5 +282,42 @@ void sendRXFrame(char* frame, short length, char port)
                 break;
                 
         }
+    }
+}
+
+/******************************* gpsReceive **********************************
+ *  @Brief  : Cette fonction gère la réception de messages du GPS, elle vérifie
+ *            tout d'abord la présence du header "$GPGGA,", puis elle récupère 
+ *            le reste des données dans le buffer de réception.
+ *  @Params : - short* compteur  : Le compteur de nombre d'octets reçus 
+ *            - char* buffer : Le buffer de réception de la trame GPS
+ *  @Retval : Aucune
+ *****************************************************************************/
+void gpsReceive(short* compteur, char* buffer)
+{   
+    /* Stockage en buffer de l'octet reçu */
+    buffer[*compteur] = Read2USART();
+    
+    /* On vérifie de recevoir l'en-tête : $GPGGA, dans les 7 premiers octets */
+    if(*compteur < 7)
+    {
+        /* Si l'octet reçu correspond à la valeur attendue, on continue */
+        if(buffer[*compteur] == GPGGA_HEADER[*compteur])
+        {
+            /* On incrémente le compteur */
+            *compteur ++;
+        }
+        
+        /* Sinon, on réinitialise le compteur */
+        else
+        {
+            *compteur = 0;
+        }
+    }
+    
+    else
+    {       
+        /* On incrémente le compteur */
+        *compteur ++;
     }
 }

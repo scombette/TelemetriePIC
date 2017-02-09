@@ -18,7 +18,7 @@ extern "C" {
 #define LED LATAbits.LATA0 
     
 /********************************** Valeurs **********************************/
-#define GPS_R_FRAME_LENGTH      16
+#define GPS_R_FRAME_LENGTH      67
 #define RADIO_S_FRAME_LENGTH    16
 
 /********************************** Labels ***********************************/
