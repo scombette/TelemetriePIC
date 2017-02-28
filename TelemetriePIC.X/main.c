@@ -10,7 +10,7 @@
  * ***************************************************************************/
 
 /*********************************** TODO ************************************
- *  @TODO : Ajout reception serie et IT associee
+ *  @TODO : Reception $GPGGA, OK --> Exploitation des resultats
  *  @TODO : Ajout reception CAN et IT associee 
  */
 
@@ -51,7 +51,7 @@ void gpsReceive(short* compteur, char* buffer);
 
 
 /******************************** Constants **********************************/
-const char GPGGA_HEADER[7] = {0x44, 'G', 'P', 'G', 'G', 'A', ','};
+const char GPGGA_HEADER[7] = {'$', 'G', 'P', 'G', 'G', 'A', ','};
 
 /******************************** Variables **********************************/
 DataMot     donneesMoteur;
@@ -106,29 +106,12 @@ void interruptions(void) {
     
     /* Interruption reception sur la liaison serie USART2 (GPS) */
     else if(IT_GPS)
-    {
+    {   
+        /* Appel de la fonction qui gère la réception et le compteur */
+        gpsReceive(&gpsRCompt, gpsBuff);
+        
         /* Reset du flag d'interruption */
         IT_GPS = 0;
-        
-        /* 
-         *
-         *            @NOTE : while ? ou if ?? Car while bloquant ... 
-         *
-         */
-        
-        /* Tant que l'on n'a pas reçu la trame complète*/
-        if(gpsRCompt < GPS_R_FRAME_LENGTH)
-        {    
-            /* Appel de la fonction qui gère la réception et le compteur */
-            gpsReceive(&gpsRCompt, gpsBuff);   
-        }
-        
-        /* Une fois que la trame est reçue, on réinitialise le compteur */
-        if(gpsRCompt == GPS_R_FRAME_LENGTH)
-        {
-            gpsRCompt = 0;
-            LED = !LED;
-        }
     }
 }
 
@@ -147,10 +130,11 @@ void main(void)
     usart2Config();
     usart1Config();
     
-    Delay10KTCYx(300);
+    LED = 0;
+    
+    //Delay10KTCYx(100);
     gpsConfig();
     
-    LED = 0;
   
     /* Boucle principale */
     while(1);
@@ -215,11 +199,10 @@ void usart1Config(void)
 void usart2Config(void)
 {
     /* Ouverture du port serie USART2*/
-    Open2USART( USART_TX_INT_OFF    & USART_RX_INT_ON       & USART_BRGH_HIGH 
-                & USART_CONT_RX     & USART_EIGHT_BIT       & USART_ASYNCH_MODE 
-                & USART_ADDEN_OFF   , BAUD_IDLE_CLK_HIGH    & BAUD_16_BIT_RATE 
-                & BAUD_WAKEUP_OFF   & BAUD_AUTO_ON);
-    
+    Open2USART( USART_TX_INT_OFF    & USART_RX_INT_ON       & USART_BRGH_LOW 
+                & USART_CONT_RX     & USART_EIGHT_BIT       & USART_ASYNCH_MODE,
+               25);
+   
     /* Reset du flag d'interruption */
     IT_GPS = 0;
 }
@@ -232,25 +215,25 @@ void usart2Config(void)
  *****************************************************************************/
 void gpsConfig(void)
 {
-    char frame[27] = {'$','P','S','R','F','1','0','3',',','0','5',',','0','0',',','0','0',',','0','1','*','2','1','\\','r','\\','n'};
+    char frame[27] = {'$','P','S','R','F','1','0','3',',','0','5',',','0','0',',','0','0',',','0','1','*','2','1','\r','\n'};
     sendRXFrame(frame, 27, 2);
     
     frame[10] = '4';
     frame[22] = '0';
-    sendRXFrame(frame, 27, 2);
+    sendRXFrame(frame, 25, 2);
     
     frame[10] = '3';
     frame[22] = '7';
-    sendRXFrame(frame, 27, 2);
+    sendRXFrame(frame, 25, 2);
     
     frame[10] = '2';
     frame[22] = '6';
-    sendRXFrame(frame, 27, 2);
+    sendRXFrame(frame, 25, 2);
 
     frame[10] = '0';
     frame[16] = '1';
     frame[22] = '5';
-    sendRXFrame(frame, 27, 2);
+    sendRXFrame(frame, 25, 2);
 }
 
 /******************************* sendRXFrame *********************************
@@ -295,29 +278,17 @@ void sendRXFrame(char* frame, short length, char port)
  *****************************************************************************/
 void gpsReceive(short* compteur, char* buffer)
 {   
-    /* Stockage en buffer de l'octet reçu */
-    buffer[*compteur] = Read2USART();
-    
-    /* On vérifie de recevoir l'en-tête : $GPGGA, dans les 7 premiers octets */
-    if(*compteur < 7)
+    /* Si on a un debut de trame NMEA (IE si on a un $) */
+    if(Read2USART() == '$')
     {
-        /* Si l'octet reçu correspond à la valeur attendue, on continue */
-        if(buffer[*compteur] == GPGGA_HEADER[*compteur])
-        {
-            /* On incrémente le compteur */
-            *compteur ++;
-        }
+        /* Alors, on recupere la chaine de caractères suivante */
+        gets2USART(buffer, GPS_R_FRAME_LENGTH);
         
-        /* Sinon, on réinitialise le compteur */
-        else
+        /* On verifier de bien avoir une trame GPGGA */
+        if(buffer[0] == 'G' && buffer[1] == 'P' && buffer[2] == 'G' && buffer[3] == 'G' && buffer[4] == 'A' && buffer[5] == ',' && buffer[6] != 0)
         {
-            *compteur = 0;
+            LED = !LED;
         }
     }
     
-    else
-    {       
-        /* On incrémente le compteur */
-        *compteur ++;
-    }
 }
