@@ -49,10 +49,6 @@ void gpsConfig(void);
 void sendRXFrame(char* frame, short length, char port);
 void gpsReceive(short* compteur, char* buffer);
 
-
-/******************************** Constants **********************************/
-const char GPGGA_HEADER[7] = {'$', 'G', 'P', 'G', 'G', 'A', ','};
-
 /******************************** Variables **********************************/
 DataMot     donneesMoteur;
 DataGPS     donneesGPS; 
@@ -83,7 +79,7 @@ void interruptions(void) {
     static short gpsRCompt = 0;
     
     /* Buffer de réception de la trame GPS */
-    static char  gpsBuff[GPS_R_FRAME_LENGTH];
+    static char  gpsBuff[80];
     
     /* Interruption du TIMER0 */
     if (IT_TMR0) 
@@ -95,13 +91,8 @@ void interruptions(void) {
     /* Interruption reception sur la liaison serie USART1 (Radio) */
     else if(IT_RADIO)
     {
-        /* Reset du flag d'interruption */
-        IT_RADIO = 0;
-        
-        if(Read1USART() == 0b11001111)
-        {
-            LED = !LED;
-        }
+        /* On vide le buffer de reception */
+        Read1USART();
     }
     
     /* Interruption reception sur la liaison serie USART2 (GPS) */
@@ -109,9 +100,14 @@ void interruptions(void) {
     {   
         /* Appel de la fonction qui gère la réception et le compteur */
         gpsReceive(&gpsRCompt, gpsBuff);
-        
-        /* Reset du flag d'interruption */
-        IT_GPS = 0;
+
+        // OK Jusqu'à un blocage ???
+
+        /* On verifie d'avoir reçu suffisamment d'informations */
+        if(gpsRCompt > 0)
+        {
+            LED = !LED;
+        }
     }
 }
 
@@ -132,7 +128,6 @@ void main(void)
     
     LED = 0;
     
-    //Delay10KTCYx(100);
     gpsConfig();
     
   
@@ -215,21 +210,27 @@ void usart2Config(void)
  *****************************************************************************/
 void gpsConfig(void)
 {
-    char frame[27] = {'$','P','S','R','F','1','0','3',',','0','5',',','0','0',',','0','0',',','0','1','*','2','1','\r','\n'};
+    /* Desactivation du VTG */
+    char frame[27] = {'$','P','S','R','F','1','0','3',',','0','5',',','0','0',
+                      ',','0','0',',','0','1','*','2','1','\r','\n'};
     sendRXFrame(frame, 27, 2);
     
+    /* Desactivation du RMC */
     frame[10] = '4';
     frame[22] = '0';
     sendRXFrame(frame, 25, 2);
     
+    /* Desactivation du GSV */
     frame[10] = '3';
     frame[22] = '7';
     sendRXFrame(frame, 25, 2);
     
+    /* Desactivation du GSA */
     frame[10] = '2';
     frame[22] = '6';
     sendRXFrame(frame, 25, 2);
 
+    /* Configuration du GPGGA a 1Hz */
     frame[10] = '0';
     frame[16] = '1';
     frame[22] = '5';
@@ -247,8 +248,10 @@ void sendRXFrame(char* frame, short length, char port)
 {
     int i = 0;
     
+    /* Tant qu'il reste des octets a envoyer on continue */
     for(i = 0; i < length; i++)
     {
+        /* On envoie sur le port serie 1 ou 2 */
         switch(port)
         {
             case 1:  
@@ -269,26 +272,37 @@ void sendRXFrame(char* frame, short length, char port)
 }
 
 /******************************* gpsReceive **********************************
- *  @Brief  : Cette fonction gère la réception de messages du GPS, elle vérifie
- *            tout d'abord la présence du header "$GPGGA,", puis elle récupère 
- *            le reste des données dans le buffer de réception.
+ *  @Brief  : Cette fonction gère la réception de messages du GPS, afin de ne 
+ *            recuperer que les trames GPGGA.
  *  @Params : - short* compteur  : Le compteur de nombre d'octets reçus 
  *            - char* buffer : Le buffer de réception de la trame GPS
  *  @Retval : Aucune
  *****************************************************************************/
 void gpsReceive(short* compteur, char* buffer)
 {   
+    short cnt = 0;
+    *compteur = 0;
+    
     /* Si on a un debut de trame NMEA (IE si on a un $) */
     if(Read2USART() == '$')
     {
-        /* Alors, on recupere la chaine de caractères suivante */
-        gets2USART(buffer, GPS_R_FRAME_LENGTH);
-        
-        /* On verifier de bien avoir une trame GPGGA */
-        if(buffer[0] == 'G' && buffer[1] == 'P' && buffer[2] == 'G' && buffer[3] == 'G' && buffer[4] == 'A' && buffer[5] == ',' && buffer[6] != 0)
+        /* Alors, on recupere la chaine de caractères qui suit jusqu'a arriver
+         * au caractère de fin de ligne */
+        do
         {
-            LED = !LED;
+            /* On attend d'avoir un nouvel octet a lire */
+            while(!DataRdy2USART());
+            /* On stocke l'octet reçu et on avance dans le buffer */
+            buffer[cnt] = Read2USART();
+            cnt ++;
+        }while(buffer[cnt - 1] != '\n' && cnt < 80);        
+
+        /* On verifier de bien avoir une trame GPGGA */
+        if(buffer[0] == 'G' && buffer[1] == 'P' && buffer[2] == 'G' && buffer[3]
+            == 'G' && buffer[4] == 'A' && buffer[5] == ',' && buffer[6] != 0)
+        {
+            /* On recupere le nombre d'octets lus */
+            *compteur = cnt;
         }
     }
-    
 }
