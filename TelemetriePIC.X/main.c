@@ -20,6 +20,7 @@
 #include <timers.h>
 #include <usart.h>
 #include "main.h"
+#include "Can.h"
 
 /********************************* Config ************************************/
 #pragma config  RETEN       = OFF
@@ -44,10 +45,14 @@ void usart1Config(void);
 void usart2Config(void);
 void canBusConfig(void);
 void gpsConfig(void);
+void canConfig();
 
 /* Exécution */
 void sendRXFrame(char* frame, short length, char port);
 void gpsReceive(short* compteur, char* buffer);
+void extractGPS(char* buffer, short length);
+char asciiToByte(char toConvert);
+short findNextVirgule(char* table, short begin, short length);
 
 /******************************** Variables **********************************/
 DataMot     donneesMoteur;
@@ -101,13 +106,17 @@ void interruptions(void) {
         /* Appel de la fonction qui gère la réception et le compteur */
         gpsReceive(&gpsRCompt, gpsBuff);
 
-        // OK Jusqu'à un blocage ???
-
-        /* On verifie d'avoir reçu suffisamment d'informations */
-        if(gpsRCompt > 0)
+        /* Une fois la reception terminee */
+        if(gpsRCompt > 12)
         {
-            LED = !LED;
+           extractGPS(gpsBuff, gpsRCompt);
         }
+    }
+    
+    /* Interruption liee a une reception sur le bus CAN */
+    else if(IT_CAN)
+    {
+        LED = !LED; 
     }
 }
 
@@ -125,6 +134,7 @@ void main(void)
     tmr0Config();
     usart2Config();
     usart1Config();
+    canConfig();
     
     LED = 0;
     
@@ -145,6 +155,10 @@ void generalConfig(void)
 {
     /* Configuration de la pin A0 en sortie TOR */
     TRISAbits.TRISA0 = 0;
+    
+    /* Configuration des pins CANTX et CANRX en sortie et entree */
+    TRISBbits.TRISB2 = 0;
+    TRISBbits.TRISB3 = 1;
     
     /* Activation des interruptions generales et des peripheriques */
 	INTCONbits.GIEH = 1;
@@ -177,10 +191,9 @@ void tmr0Config(void)
 void usart1Config(void)
 {
     /* Ouverture du port serie USART1*/
-    Open1USART( USART_TX_INT_OFF    & USART_RX_INT_ON      & USART_BRGH_HIGH 
-                & USART_CONT_RX     & USART_EIGHT_BIT       & USART_ASYNCH_MODE 
-                & USART_ADDEN_OFF   , BAUD_IDLE_CLK_HIGH    & BAUD_16_BIT_RATE 
-                & BAUD_WAKEUP_OFF   & BAUD_AUTO_ON);
+    Open1USART( USART_TX_INT_OFF    & USART_RX_INT_ON       & USART_BRGH_LOW 
+                & USART_CONT_RX     & USART_EIGHT_BIT       & USART_ASYNCH_MODE,
+               12);
    
     /* Reset du flag d'interruption */
     IT_RADIO = 0;
@@ -200,6 +213,27 @@ void usart2Config(void)
    
     /* Reset du flag d'interruption */
     IT_GPS = 0;
+}   
+
+/******************************** canConfig ***********************************
+ *  @Brief  : Cette fonction configure le module ECAN
+ *  @Params : Aucun
+ *  @Retval : Aucune
+ *****************************************************************************/
+void canConfig()
+{
+    /* Initialisation du module ECAN avec configuration du baudrate */
+    ECANInitialize (0b01, 0b000001, 0b101, 0b001, 0b110);
+    /* Configuration du masque de reception */
+    ECAN0SetMask (0xFF, ONLY_STANDARD);
+    /* Configuration du filtre de reception : le buffer 0 recevra les messages 
+     * du module moteur */
+    ECAN0SetFilter (ECAN_FILTER_0, TELEMETRY_MODULE);
+    
+    /* Configuration des interruptions */
+    PIE5bits.RXB0IE = 1;    
+    RXB0CONbits.RXFUL = 0;    
+    IT_CAN = 0;
 }
 
 /******************************** gpsConfig ***********************************
@@ -280,29 +314,191 @@ void sendRXFrame(char* frame, short length, char port)
  *****************************************************************************/
 void gpsReceive(short* compteur, char* buffer)
 {   
-    short cnt = 0;
+    static short cnt = 0;
     *compteur = 0;
     
-    /* Si on a un debut de trame NMEA (IE si on a un $) */
-    if(Read2USART() == '$')
+    /* Si la trame n'a pas commence */
+    if(cnt == 0)
     {
-        /* Alors, on recupere la chaine de caractères qui suit jusqu'a arriver
-         * au caractère de fin de ligne */
-        do
+         /* Si on a un debut de trame NMEA (IE si on a un $) */
+        if(Read2USART() == '$')
         {
-            /* On attend d'avoir un nouvel octet a lire */
-            while(!DataRdy2USART());
-            /* On stocke l'octet reçu et on avance dans le buffer */
-            buffer[cnt] = Read2USART();
+            buffer[cnt] = '$';
             cnt ++;
-        }while(buffer[cnt - 1] != '\n' && cnt < 80);        
-
-        /* On verifier de bien avoir une trame GPGGA */
-        if(buffer[0] == 'G' && buffer[1] == 'P' && buffer[2] == 'G' && buffer[3]
-            == 'G' && buffer[4] == 'A' && buffer[5] == ',' && buffer[6] != 0)
-        {
-            /* On recupere le nombre d'octets lus */
-            *compteur = cnt;
         }
     }
+    
+    /* Si la reception de la trame a debute */
+    else
+    {
+        /* On stocke l'octet reçu et on avance dans le buffer */
+        buffer[cnt] = Read2USART();
+        cnt ++;
+        
+        /* Si on arrive à la fin de la trame*/
+        if(buffer[cnt - 1] == '\n' || cnt >= 80)
+        {
+            /* On decremente le compteur */
+            cnt --;
+            
+            /* On verifie de bien avoir une trame GPGGA */
+            if(buffer[0] == '$' && buffer[1] == 'G' && buffer[2] == 'P' && 
+                    buffer[3] == 'G' && buffer[4] == 'G' && buffer[5] == 'A' && 
+                    buffer[6] == ',')
+            {
+                /* On recupere le nombre d'octets lus */
+                *compteur = cnt;
+            }
+                /* On vide le compteur de reception */
+                cnt = 0;  
+        }
+    }
+}
+
+/******************************* extractGPS **********************************
+ *  @Brief  : Cette fonction extrait les informations de la trame GPS
+ *  @Params : - char* buffer : Le buffer de réception de la trame GPS
+ *            - short length : La longueur du buffer de reception
+ *  @Retval : Aucune
+ *****************************************************************************/
+void extractGPS(char* buffer, short length)
+{
+    /* Compteur pour parcourir le buffer */
+    short cnt = 0;
+    short nextVirgule = 0;
+    
+    char s[16];
+    
+    /* Variable de calcul du CRC*/
+    char CRC = 0;
+    
+    /* On calcule le CRC du premier G jusqu'a l'etoile excluse */
+    for(cnt = 1; cnt < length - 4; cnt ++)
+    {
+        CRC = (unsigned char) (CRC ^ buffer[cnt]);
+    }
+    
+    /* Conversion des caracteres ASCII en valeur hexa*/
+    buffer[length - 3] = asciiToByte(buffer[length - 3]);
+    buffer[length - 2] = asciiToByte(buffer[length - 2]);
+
+    /* Si le calcul de la checksum correspond a la valeur recue, on extrait */
+    if(((buffer[length - 3] << 4) + buffer[length - 2]) == CRC)
+    {
+        /* Recuperation de l'heure (format hhmmss dans la trame) */
+        donneesGPS.heure = asciiToByte(buffer[7]) * 10 + asciiToByte(buffer[8]);
+        donneesGPS.minutes = asciiToByte(buffer[9]) * 10 + asciiToByte(buffer[10]);
+        donneesGPS.secondes = asciiToByte(buffer[11]) * 10 + asciiToByte(buffer[12]);
+        
+        /************ Latitude ************/
+        
+        /* On se place au niveau de la virgule apres l'heure */
+        cnt = findNextVirgule(buffer, 13, length);
+        /* On cherche la virgule de fin de longitude */
+        nextVirgule = findNextVirgule( buffer, cnt + 1, length);
+        
+        /* On verifie qu'il y ait une valeur */
+        if(nextVirgule - cnt > 3)
+        {
+            cnt ++;
+            donneesGPS.latitude_deg = asciiToByte(buffer[cnt]) * 10 + asciiToByte(buffer[cnt + 1]);
+            cnt += 2;
+            donneesGPS.latitude_min = asciiToByte(buffer[cnt]) * 10 + asciiToByte(buffer[cnt + 1]);
+            cnt += 3;
+            donneesGPS.latitude_cent_min = asciiToByte(buffer[cnt]) * 10 + asciiToByte(buffer[cnt + 1]);
+            cnt += 2;
+            donneesGPS.latitude_dixmil_min = asciiToByte(buffer[cnt]) * 10 + asciiToByte(buffer[cnt + 1]);
+        }
+        
+        /* On stocke le point cardinal (N / S) directement en ASCII */
+        donneesGPS.latitude_card = buffer[nextVirgule + 1];
+
+        /************ Longitude ************/
+        
+         /* On se place au niveau de la virgule apres le cardinal */
+        cnt = nextVirgule + 2;
+        /* On cherche la virgule de fin de longitude */
+        nextVirgule = findNextVirgule( buffer, nextVirgule + 3, length);
+        
+        /* On verifie qu'il y ait une valeur */
+        if(nextVirgule - cnt > 3)
+        {
+            /* On tronque la valeur de la longitude a +/- 64 */
+            cnt += 2;
+            donneesGPS.longitude_deg = asciiToByte(buffer[cnt]) * 10 + asciiToByte(buffer[cnt + 1]);
+            cnt += 2;
+            donneesGPS.longitude_min = asciiToByte(buffer[cnt]) * 10 + asciiToByte(buffer[cnt + 1]);
+            cnt += 3;
+            donneesGPS.longitude_cent_min = asciiToByte(buffer[cnt]) * 10 + asciiToByte(buffer[cnt + 1]);
+            cnt += 2;
+            donneesGPS.longitude_dixmil_min = asciiToByte(buffer[cnt]) * 10 + asciiToByte(buffer[cnt + 1]);
+        }
+        
+        /* On stocke le point cardinal (W / E) directement en ASCII */
+        donneesGPS.longitude_card = buffer[nextVirgule + 1];
+        
+        s[0] = donneesGPS.heure;
+        s[1] = donneesGPS.minutes;
+        s[2] = donneesGPS.secondes;
+        s[3] = ',';
+        s[4] = donneesGPS.latitude_deg;
+        s[5] = donneesGPS.latitude_min;
+        s[6] = donneesGPS.latitude_cent_min;
+        s[7] = donneesGPS.latitude_dixmil_min;
+        s[8] = donneesGPS.latitude_card;
+        s[9] = ',';
+        s[10] = donneesGPS.longitude_deg;
+        s[11] = donneesGPS.longitude_min;
+        s[12] = donneesGPS.longitude_cent_min;
+        s[13] = donneesGPS.longitude_dixmil_min;
+        s[14] = donneesGPS.longitude_card;
+        s[15] = '\n';
+        sendRXFrame(s, 16, 1);
+        
+        LED = !LED;
+    }
+}
+
+/******************************* asciiToByte *********************************
+ *  @Brief  : Cette fonction convertit un caractère ASCII hexadecimal en sa 
+ *            valeur (ex : 'C' devient 0b00001100) 
+ *  @Params : - char toConvert : La valeur a convertir
+ *  @Retval : - char value     : La valeur convertie
+ *****************************************************************************/
+char asciiToByte(char toConvert)
+{
+    char value;
+    
+    /* On commence par enlever l'offset des chiffres en ascii : 0x30 */
+    value = toConvert - 0x30;
+    
+    /* Si le caractere etait superieur a 9 (A,B,C,D,E,F), on enleve encore 7 */
+    if(value > 0x0F)
+    {
+        value -= 0x07;
+    }
+    
+    return value;
+}
+
+/***************************** findNextVirgule *******************************
+ *  @Brief  : Cette fonction trouve la position de la prochaine virgule d'un 
+ *            tableau a partir d'un index de depart
+ *  @Params : - char* table     : Le tableau dans lequel chercher
+ *            - short begin     : Le point de depart de la recherche
+ *            - short length    : La taille du tableau 
+ *  @Retval : - short position  : La position de la prochaine virgule
+ *****************************************************************************/
+short findNextVirgule(char* table, short begin, short length)
+{
+    short position = begin;
+    
+    /* On incremente la position jusqu'a arriver a une virgule ou etre en fin de 
+     * tableau */
+    while(table[position] != ',' && position < length)
+    {
+        position ++;
+    }
+    
+    return position;
 }

@@ -25,14 +25,30 @@ extern "C" {
 #define IT_TMR0 INTCONbits.TMR0IF 
 #define IT_RADIO  PIR1bits.RC1IF
 #define IT_GPS  PIR3bits.RC2IF
+#define IT_CAN  PIR5bits.RXB0IF
     
 /******************************** Structures *********************************/   
 
 typedef struct DataGPS DataGPS;
 struct DataGPS
 {
-    int latitude;
-    int longitude;
+    char heure;
+    char minutes;
+    char secondes;
+    char latitude_deg;
+    char latitude_min;
+    char latitude_cent_min;
+    char latitude_dixmil_min;
+    char latitude_card;
+    char longitude_deg;
+    char longitude_min;
+    char longitude_sec;
+    char longitude_cent_min;
+    char longitude_dixmil_min;
+    char longitude_card;
+    char altitudeH;
+    char altitudeL;
+    char nbSats;
 };
 
 typedef struct DataMot DataMot;
