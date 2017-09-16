@@ -137,7 +137,7 @@ void main(void)
     canConfig();
     
     LED = 0;
-    
+    Delay10KTCYx(50);
     gpsConfig();
     
   
@@ -367,7 +367,7 @@ void extractGPS(char* buffer, short length)
     short cnt = 0;
     short nextVirgule = 0;
     
-    char s[16];
+    char s[22];
     
     /* Variable de calcul du CRC*/
     char CRC = 0;
@@ -432,10 +432,48 @@ void extractGPS(char* buffer, short length)
             donneesGPS.longitude_cent_min = asciiToByte(buffer[cnt]) * 10 + asciiToByte(buffer[cnt + 1]);
             cnt += 2;
             donneesGPS.longitude_dixmil_min = asciiToByte(buffer[cnt]) * 10 + asciiToByte(buffer[cnt + 1]);
+            cnt = nextVirgule + 1;
         }
         
         /* On stocke le point cardinal (W / E) directement en ASCII */
-        donneesGPS.longitude_card = buffer[nextVirgule + 1];
+        donneesGPS.longitude_card = buffer[cnt];
+        cnt = findNextVirgule(buffer, cnt, length) + 1;
+        
+        /* On verifie que le fix est correct */
+        if(buffer[cnt] == 0x31)
+        {
+            /* On recupere le nombre de GPS disponibles */
+            cnt = findNextVirgule(buffer, cnt, length) + 1;
+            donneesGPS.nbSats = (buffer[cnt] - 0x30) * 10 + (buffer[cnt + 1] - 0x30);
+            
+            /* On saute le champ horizontal dilution */
+            cnt = findNextVirgule(buffer, cnt, length) + 1;
+            cnt = findNextVirgule(buffer, cnt, length) + 1;
+            
+            /************ Altitude ************/
+            nextVirgule = findNextVirgule(buffer, cnt, length);
+            
+            /* On recupere la decimale et la valeur unite */
+            donneesGPS.altitude = (buffer[nextVirgule - 1] - 0x30) * 0.1 + buffer[nextVirgule - 3] - 0x30;
+            
+            /* Selon le nombre de caracteres pour l'altitude */
+            switch(nextVirgule - cnt)
+            {
+                /* 5 caracteres --> xxx.x */
+                case 5:
+                    donneesGPS.altitude += (buffer[nextVirgule - 5] - 0x30) * 100 + (buffer[nextVirgule - 4] - 0x30) * 10;
+                    break;
+                    
+                /* 4 caracteres --> xx.x */
+                case 4:
+                    donneesGPS.altitude += (buffer[nextVirgule - 4] - 0x30) * 10;
+                    break;
+                    
+                default:
+                    break;                
+            }
+            
+        }
         
         s[0] = donneesGPS.heure;
         s[1] = donneesGPS.minutes;
@@ -452,8 +490,14 @@ void extractGPS(char* buffer, short length)
         s[12] = donneesGPS.longitude_cent_min;
         s[13] = donneesGPS.longitude_dixmil_min;
         s[14] = donneesGPS.longitude_card;
-        s[15] = '\n';
-        sendRXFrame(s, 16, 1);
+        s[15] = ',';
+        s[16] = (char) ((short) donneesGPS.altitude >> 8);
+        s[17] = (char) ((short) donneesGPS.altitude & 0xFF);
+        s[18] = (char) ((donneesGPS.altitude - (short) donneesGPS.altitude) * 10);
+        s[19] = ',';
+        s[20] = donneesGPS.nbSats;
+        s[21] = '\n';
+        sendRXFrame(s, 22, 1);
         
         LED = !LED;
     }

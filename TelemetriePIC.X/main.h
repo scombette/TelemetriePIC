@@ -46,8 +46,7 @@ struct DataGPS
     char longitude_cent_min;
     char longitude_dixmil_min;
     char longitude_card;
-    char altitudeH;
-    char altitudeL;
+    float altitude;
     char nbSats;
 };
 
